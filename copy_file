@@ -1,0 +1,39 @@
+#!/bin/bash
+
+# Obtenir la liste des machines virtuelles en cours d'exécution
+RUNNING_VMS=$(qvm-ls --running | grep -v 'dom0' | tail -n +2 | awk '{print $1}')
+
+# Afficher la fenêtre YAD pour sélectionner la machine virtuelle
+SELECTED_VM=$(echo "$RUNNING_VMS" | yad --title "Sélectionner une machine virtuelle" --list --column "Machines virtuelles" --height=300)
+if [ $? -ne 0 ]; then
+    echo "Opération annulée."
+    exit 1
+fi
+
+# Supprimer les caractères de fin de ligne et de fin de chaîne
+SELECTED_VM=${SELECTED_VM%%$'\n'}
+SELECTED_VM=${SELECTED_VM%%|} 
+
+# Afficher la fenêtre YAD pour sélectionner le fichier dans la machine virtuelle
+SRC_FILE=$(qvm-run --pass-io "$SELECTED_VM" "yad --file --title='Sélectionner le fichier à copier'")
+if [ $? -ne 0 ]; then
+    echo "Opération annulée."
+    exit 1
+fi
+
+# Sélectionner le répertoire de destination dans dom0
+DEST_DIR=$(yad --file --directory --title="Sélectionner le répertoire de destination")
+if [ $? -ne 0 ]; then
+    echo "Opération annulée."
+    exit 1
+fi
+
+# Extraire le nom du fichier à partir du chemin complet
+SRC_FILENAME=$(basename "$SRC_FILE")
+
+# Construire le chemin de destination dans dom0
+DEST_FILE="$DEST_DIR/$SRC_FILENAME"
+
+# Copier le fichier de la machine virtuelle vers dom0
+qvm-run --pass-io "$SELECTED_VM" "cat '$SRC_FILE'" > "$DEST_FILE"
+

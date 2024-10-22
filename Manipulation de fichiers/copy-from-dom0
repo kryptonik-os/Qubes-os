@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# Sélectionner le fichier source dans dom0
+SRC_FILE=$(yad --file --title="Sélectionner le fichier à copier")
+if [ $? -eq 0 ]; then
+    # Obtenir la liste des machines virtuelles en cours d'exécution
+SELECTED_VM=$(qvm-ls --running | grep -v 'dom0' | tail -n +2 | awk '{print $1}' | yad --title "Vms en cours d'éxecution" --list --column "Sectionner une Vm :" --height=300)
+echo "Valeur sélectionnée : $SELECTED_VM"
+
+SELECTED_VM=${SELECTED_VM%%|} #supprimer le caractere de fin de chaine
+SELECTED_VM=${SELECTED_VM%%$'\n'} #supprimer le caractere de fin de ligne
+echo "Valeur sélectionnée aprés suppression des caractéres: $SELECTED_VM"
+
+
+    # Afficher la fenêtre YAD pour sélectionner la machine virtuelle de destination
+    DEST_VM=$(echo "$SELECTED_VM")
+    if [ $? -eq 0 ]; then
+	    DEST_VM=${DEST_VM%%|}
+        DEST_FILE="/path/to/file_name_in_appvm"
+
+        # Exécuter la commande de copie
+#        cat "$SRC_FILE" | qvm-run --pass-io "$DEST_VM" "cat > '$DEST_FILE'"
+        qvm-copy-to-vm "$DEST_VM" "$SRC_FILE" 
+    else
+        echo "Opération annulée."
+        exit 1
+    fi
+else
+    echo "Opération annulée."
+    exit 1
+fi

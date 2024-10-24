@@ -1,32 +1,54 @@
 #!/bin/bash
 
+set -e
 # Obtenir la liste des machines virtuelles en cours d'exécution
-RUNNING_VMS=$(qvm-ls --running | grep -v 'dom0' | tail -n +2 | awk '{print $1}')
+title="${1:-Qubes}"
+text="${2:-Select qube:}"
 
-# Afficher la fenêtre YAD pour sélectionner la machine virtuelle
-SELECTED_VM=$(echo "$RUNNING_VMS" | yad --title "Sélectionner une machine virtuelle" --list --column "Machines virtuelles" --height=300)
-if [ $? -ne 0 ]; then
-    echo "Opération annulée."
-    exit 1
-fi
+qubes="$(python3 -c """
+import sys
+import qubesadmin
+app = qubesadmin.Qubes()
+qubes = [qube for qube in app.domains if qube.klass in ('AppVM', 'StandaloneVM') and not getattr(qube, 'template_for_dispvms', False) and qube.is_running() or ('servicevm' in qube.features and qube.is_running())]
+for qube in sorted(qubes, key=lambda x: x.name):
+    print(f'{qube.icon} {qube.name}')
+""")"
+
+# Sélection de la VM
+if
+SELECTED_VM=$(yad --list --on-top --no-headers --width 150 --height 300 --title "$title" --text "$text" --column ':IMG' --column '' $qubes); then
 
 # Supprimer les caractères de fin de ligne et de fin de chaîne
-SELECTED_VM=${SELECTED_VM%%$'\n'}
+SELECTED_VM=${SELECTED_VM#|}
 SELECTED_VM=${SELECTED_VM%%|} 
 
+	echo "VM sélectionée : $SELECTED_VM"
+else
+	echo "Opération annulée"
+	yad --title="Opération annulée" --text="Vous avez annulée l'opération." --button="Ok"
+
 # Afficher la fenêtre YAD pour sélectionner le fichier dans la machine virtuelle
-SRC_FILE=$(qvm-run --pass-io "$SELECTED_VM" "yad --file --title='Sélectionner le fichier à copier'")
-if [ $? -ne 0 ]; then
-    echo "Opération annulée."
-    exit 1
+ echo "Affichage de la fenêtre de sélection du fichier."
+set +e
+SRC_FILE=$(qvm-run --pass-io  "$SELECTED_VM" "yad --file --title='Sélectionner le fichier à copier'")
+
+if [ -z "$SRC_FILE" ]; then
+	echo "Opération annulée."
+	# Afficher une boite de dialogue YAD pour confirmer l'annulation
+	yad --title="Opération annulée" --text="Vous avez annulée l'opération." --button="Ok"
+	exit 1
+fi
+# Sélectionner le répertoire de destination dans dom0
+echo "Affichage de la fenêtre de selection su répertoire de dom0"
+DEST_DIR=$(yad --file --directory --title="Sélectionner le répertoire de destination")
+
+if [ -z "$DEST_DIR" ]; then
+	echo "Opération annulée."
+	# Afficher une boite de dialogue YAD pour confirmer l'annulation
+	yad --title="Opération annulée" --text="Vous avez annulée l'opération." --button="Ok"
+	exit 1
 fi
 
-# Sélectionner le répertoire de destination dans dom0
-DEST_DIR=$(yad --file --directory --title="Sélectionner le répertoire de destination")
-if [ $? -ne 0 ]; then
-    echo "Opération annulée."
-    exit 1
-fi
 
 # Extraire le nom du fichier à partir du chemin complet
 SRC_FILENAME=$(basename "$SRC_FILE")
@@ -35,5 +57,10 @@ SRC_FILENAME=$(basename "$SRC_FILE")
 DEST_FILE="$DEST_DIR/$SRC_FILENAME"
 
 # Copier le fichier de la machine virtuelle vers dom0
+echo "Copie du fichier vers dom0."
 qvm-run --pass-io "$SELECTED_VM" "cat '$SRC_FILE'" > "$DEST_FILE"
-
+yad --title="Fichier copié" --text="Le fichier a été copié avec succés" --button="Ok"
+else
+	echo "Opération annulée par l'utilisateur."
+	exit 1
+fi

@@ -1,0 +1,82 @@
+#!/bin/bash
+set -e
+
+title="${1:-Qubes}"
+text="${2:-Select qubes:}"
+
+# Liste des qubes à exclure pour le premier menu
+excluded_qubes=("sys-audio" "sys-usb" "qube3")  # Remplacez par les noms des qubes à exclure
+
+# Convertir la liste Bash en une chaîne de caractères pour Python
+excluded_qubes_str=$(printf "'%s', " "${excluded_qubes[@]}")
+excluded_qubes_str="[${excluded_qubes_str%, }]"  # Formater en liste Python
+
+# Récupérer les qubes pour ls NetVms
+qubes_NetVM="$(python3 -c """
+import sys
+import qubesadmin
+
+excluded_qubes = $excluded_qubes_str
+app = qubesadmin.Qubes()
+qubes = [qube for qube in app.domains if (qube.klass in ('AppVM', 'StandaloneVM', 'DispVM') or 'servicevm' in qube.features) and qube.provides_network and qube.name not in excluded_qubes]
+for qube in sorted(qubes, key=lambda x: x.name):
+    print(f'{qube.name}')
+""")"
+
+# Récupérer les qubes pour les AppVms
+qubes_AppVM="$(python3 -c """
+import sys
+import qubesadmin
+app = qubesadmin.Qubes()
+qubes = [qube for qube in app.domains if qube.klass in ('AppVM', 'StandaloneVM') and not getattr(qube, 'template_for_dispvms', False) and 'servicevm' not in qube.features]
+for qube in sorted(qubes, key=lambda x: x.name):
+    print(f'{qube.name}')
+""")"
+
+# Récupérer les qubes pour les TemplateVms
+qubes_TemplateVM="$(python3 -c """
+import sys
+import qubesadmin
+app = qubesadmin.Qubes()
+qubes = [qube for qube in app.domains if qube.klass in ('TemplateVM') or getattr(qube, 'template_for_dispvms', False)]
+for qube in sorted(qubes, key=lambda x: x.name):
+    print(f'{qube.name}')
+""")"
+
+# Récuperer les couleurs
+icons="blue gray green orange"
+
+# Formatter les options pour les listes déroulantes
+options1=$(echo "$qubes_NetVM" | tr '\n' ',')
+options2=$(echo "$qubes_AppVM" | tr '\n' ',')
+options3=$(echo "$qubes_TemplateVM" | tr '\n' ',')
+options4=$(echo "$icons" | tr ' ' ',')
+# Supprimer la barre verticale à la fin
+options1=${options1%|}
+options2=${options2%|}
+options3=${options3%|}
+
+# Afficher les deux menus déroulants dans une seule fenêtre
+selected_qubes=$(yad --form --on-top --no-headers --title="$title" --text-info="$text" --fore=red \
+    --columns=5 \
+    --item-separator="," \
+    --field="NetVm  :CB" "$options1" \
+    --field="TemplateVM  :CB" "$options3" \
+    --field="Ram  :NUM" "1000" \
+    --field="Commande" "" \
+    --field="Label :CB" "$options4" \
+    --width=400 --height=100)
+
+# Extraire les sélections
+selected_NetVM=$(echo "$selected_qubes" | awk -F '|' '{print $1}')
+selected_TemplateVM=$(echo "$selected_qubes" | awk -F '|' '{print $2}')
+selected_RAM=$(echo "$selected_qubes" | awk -F '|' '{print $3}')
+selected_Commande=$(echo "$selected_qubes" | awk -F '|' '{print $4}')
+selected_Label=$(echo "$selected_qubes" | awk -F '|' '{print $5}')
+
+
+# Construction  de la commande
+shadow_command=" shadow -p netvm=$selected_NetVM -p template=$selected_TemplateVM -p memory=$selected_RAM -c $selected_Commande -p label=$selected_Label"
+
+# Execution de la commande
+eval $shadow_command

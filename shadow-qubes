@@ -44,7 +44,7 @@ for qube in sorted(qubes, key=lambda x: x.name):
 """)"
 
 # Récuperer les couleurs
-icons="blue gray green orange"
+icons="blue gray green orange purple red yellow"
 
 # Formatter les options pour les listes déroulantes
 options1=$(echo "$qubes_NetVM" | tr '\n' ',')
@@ -57,7 +57,7 @@ options2=${options2%|}
 options3=${options3%|}
 
 # Afficher les deux menus déroulants dans une seule fenêtre
-selected_qubes=$(yad --form --on-top --no-headers --title="$title" --text-info="$text" --fore=red \
+selected_qubes=$(yad --form --on-top --no-headers --title="$title" --text-info="$text" \
     --columns=5 \
     --item-separator="," \
     --field="NetVm  :CB" "$options1" \

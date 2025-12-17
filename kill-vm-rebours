@@ -1,0 +1,137 @@
+#!/bin/bash
+
+# Définir les variables globales
+TITLE="Qubes"
+TEXT="Select qube:"
+CONKY_CONFIG="$HOME/qubes-conky/conky_kill_rebours.conf"
+
+# Lister les VMs en cours d'exécution
+qubes=$(python3 -c """
+import sys
+import qubesadmin
+app = qubesadmin.Qubes()
+qubes = [qube for qube in app.domains if qube.klass in ('AppVM', 'StandaloneVM') and not getattr(qube, 'template_for_dispvms', False) and qube.is_running() or ('servicevm' in qube.features and qube.is_running())]
+for qube in sorted(qubes, key=lambda x: x.name):
+    print(f'{qube.icon} {qube.name}')
+""")
+
+echo "Liste des VMs en cours d'exécution :"
+echo "$qubes"
+
+# Sélectionner la VM
+SELECTED_VM=$(yad --list --on-top --no-headers --width 150 --height 400 --title "$TITLE" --text "$TEXT" --column ':IMG' --column '' $qubes)
+
+echo "VM sélectionnée : $SELECTED_VM"
+
+# Vérifier si l'utilisateur a annulé
+if [ $? -ne 0 ]; then
+  echo "Annulation"
+  exit 1
+fi
+
+# Traitement de la VM sélectionnée
+SELECTED_VM=${SELECTED_VM#|} # supprimer le caractère de début de chaîne
+SELECTED_VM=${SELECTED_VM%%|} # supprimer le caractère de fin de chaîne
+echo "VM sélectionnée : $SELECTED_VM"
+
+# Vérifier si une VM a été sélectionnée
+if [ -z "$SELECTED_VM" ]; then
+  echo "Aucune VM sélectionnée"
+  exit 1
+fi
+
+# Étape 3 : Demander le nom du programme à tuer
+PROGRAM_NAME=$(yad --entry --title="Nom du programme" --text="Entrez le nom du programme à tuer:")
+
+echo "Nom du programme à tuer : $PROGRAM_NAME"
+
+# Vérifier si l'utilisateur a annulé
+if [ $? -ne 0 ]; then
+  echo "Annulation"
+  exit 1
+fi
+
+# Étape 4 : Obtenir les PIDs du programme et le tuer
+PIDS=$(qvm-run --pass-io "$SELECTED_VM" "pgrep -f '$PROGRAM_NAME'")
+
+echo "PIDs du programme : $PIDS"
+
+# Afficher les PIDs trouvées pour le débogage
+echo "PIDs trouvées : $PIDS"
+
+# Vérifier si le PID a été trouvé 
+if [ -z "$PIDS" ]; then
+  yad --warning --text="Aucun processus '$PROGRAM_NAME' trouvé dans la VM '$SELECTED_VM'."
+  exit 1
+fi
+
+# Demande à l'utilisateur de saisir une durée en secondes
+DUREE=$(yad --entry --title="Compte à rebours" --text="Veuillez entrer la durée du compte à rebours en minutes:")
+
+echo "Durée du compte à rebours : $DUREE"
+
+# Vérifie si l'utilisateur a annulé la saisie
+if [ $? -eq 1 ]; then
+  yad --info --title="Saisie annulée" --text="Saisie annulée." --button="Ok"
+  exit 1
+fi
+
+# Vérifie si l'entrée est un nombre
+if ! [[ "$DUREE" =~ ^[0-9]+$ ]]; then
+  yad --error --title="Erreur" --text="Veuillez entrer un nombre valide."
+  exit 1
+fi
+
+# Créer le fichier avec un message par défaut
+echo "Aucun compte à rebours en cours..." > /tmp/kill_rebours.txt
+
+# Convertir la durée en minutes
+DUREE=$((DUREE * 60))
+
+# Lancer Conky
+echo "démarrage de conky"
+conky -c $HOME/qubes-conky/conky_kill_rebours.conf &
+
+# Récupérer le PID de conky
+CONKY_PID=$!
+echo "PID de conky : $CONKY_PID"
+
+# Lancer la fenêtre de progression
+{
+  for ((i=DUREE; i>0; i--)); do
+    # Calculer les minutes et les secondes restantes
+    MINUTES=$((i / 60))
+    SECONDES=$((i % 60))
+    echo "$PROGRAM_NAME sera tué dans:"  > /tmp/kill_rebours.txt
+    echo "$MINUTES minutes et $SECONDES secondes" >> /tmp/kill_rebours.txt
+
+    # Mettre à jour la barre de progression
+    PERCENTAGE=$(((DUREE - i) * 100 / DUREE))
+    echo "$PERCENTAGE"
+    sleep 1
+  done
+} | yad --progress --title="Compte à rebours" --text="Décompte en cours..." --percentage=0 --button="Annuler":1 --auto-close
+
+# Vérifie si l'utilisateur a annulé le décompte
+if [ $? -eq 1 ]; then
+  echo "Décompte annulé"
+  kill $CONKY_PID
+    yad --info --text="Décompte annulé." --button="Ok"
+  exit
+fi
+
+# Vérifier si Conky est bien tué
+if ps -p $CONKY_PID > /dev/null; then
+  echo "Conky n'est pas tué, essayer à nouveau"
+#  kill $CONKY_PID
+fi
+
+# Tuer le programme
+echo "tuer le programme avec les pids : $PIDS"
+for PID in $PIDS; do
+  qvm-run --pass-io "$SELECTED_VM"  "kill $PID" && kill $CONKY_PID
+done
+
+    yad --info --text="Processus '$PROGRAM_NAME' tué dans la VM '$SELECTED_VM'." --button="Ok"
+
+

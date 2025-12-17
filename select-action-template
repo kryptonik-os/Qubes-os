@@ -1,0 +1,70 @@
+#!/bin/bash
+set -e
+
+title="${1:-Qubes}"
+text="${2:-Select qube:}"
+
+qubes="$(python3 -c """
+import sys
+import qubesadmin
+app = qubesadmin.Qubes()
+qubes = [qube for qube in app.domains if qube.klass in ('TemplateVM') or getattr(qube, 'template_for_dispvms', False)]
+for qube in sorted(qubes, key=lambda x: x.name):
+    print(f'FALSE {qube.icon} {qube.name}')
+""")"
+# Sélection de la VM
+SELECTED_VM=$(yad --list --checklist --on-top --no-headers --width 275 --height 375 --title "$title" --text "$text" --column 'select' --column ':IMG' --column 'Qubes' $qubes)
+
+# Traitement de la VM sélectionnée
+#SELECTED_VM=${SELECTED_VM#TRUE||} # supprimer le caractère de début de chaîne
+#SELECTED_VM=${SELECTED_VM%%|} # supprimer le caractère de fin de chaîne
+SELECTED_VMS=()
+while IFS= read -r line; do
+        line=${line#TRUE||}
+        line=${line%%|}
+        SELECTED_VMS+=("$line")
+done < <(echo "$SELECTED_VM")
+for vm in "${SELECTED_VMS[@]}"; do
+echo "VM sélectionnée : $vm"
+# Vérifier si une VM a été sélectionée
+                if [ -z "$vm" ]; then
+                echo "Aucune VM sélectionnée"
+                exit 1
+        fi
+
+# Nouvelle fenêtre Yad avec les actions à effectuer sur la vm
+SELECTED_ACTION=$(yad --title "Actions sur la vm $vm" --list --column  "Actions" "Arreter" "Démarrer/Redémarrer" "Tuer" "Lancer un terminal" "Lancer thunar"  --height=250)
+SELECTED_ACTION=${SELECTED_ACTION%%|} # supprimer le caractère de fin de chaîne
+# Vérifier la valeur de SELECTED_ACTION
+echo "Action sélectionnée : $SELECTED_ACTION"
+
+# Execution de l'action sélectionnée sur la VM
+case $SELECTED_ACTION in
+        "Arreter")
+        echo "Tentative d'arrêt de la VM $vm"
+        qvm-shutdown "$vm" &
+                echo "La VM $SELECTED_VM a été arrêtée avec succès."
+        ;;
+        "Démarrer/Redémarrer")
+        echo "Tentative de redémarrage de la VM $vm"
+        qvm-shutdown "$vm" &
+                sleep 2
+        qvm-start "$vm" &
+        echo "La VM $vm a été redémarrée."
+        ;;
+        "Tuer")
+        echo "Tentative pour tuer la VM $vm"
+        qvm-kill "$vm" &
+                echo "La VM $vm a été tuée avec succés."
+        ;;
+        "Lancer un terminal")
+        echo "lancement du terminal"
+        qvm-run --pass-io "$vm" xfce4-terminal &
+        ;;
+        "Lancer thunar")
+        echo "Lancement de thunar"
+        qvm-run --pass-io "$vm" thunar &
+        ;;
+esac
+done
+
